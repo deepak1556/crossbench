@@ -23,6 +23,8 @@ from crossbench.probes.cb_perfetto.context.chromeos import \
     ChromeOsPerfettoProbeContext
 from crossbench.probes.cb_perfetto.context.desktop import \
     DesktopPerfettoProbeContext
+from crossbench.probes.cb_perfetto.context.windows import \
+    ExternalWindowsPerfettoProbeContext
 from crossbench.probes.cb_perfetto.downloader import PerfettoToolDownloader
 from crossbench.probes.cb_perfetto.perfetto import TraceConfig
 from protoc import trace_config_pb2
@@ -356,6 +358,15 @@ class PerfettoProbeFunctionalTestCase(CrossbenchConfigTestMixin,
         ssh_user="user")
     context = probe.create_context(run_chromeos)
     self.assertIsInstance(context, ChromeOsPerfettoProbeContext)
+
+  def test_create_context_external_windows_app(self):
+    probe = PerfettoProbe.parse_str("v8")
+    run_windows = mock.Mock()
+    run_windows.out_dir = pth.LocalPath("/tmp")
+    run_windows.browser_platform = WinMockPlatform()
+    run_windows.benchmark.manages_browser_process = False
+    context = probe.create_context(run_windows)
+    self.assertIsInstance(context, ExternalWindowsPerfettoProbeContext)
 
   def test_get_extra_probes(self):
     probe = PerfettoProbe.parse_str("v8")

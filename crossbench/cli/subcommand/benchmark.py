@@ -601,6 +601,7 @@ class BenchmarkSubcommand(CrossbenchSubcommand):
     self._process_dir_args(args, tmp_dirname)
     self._process_config_args(args)
     benchmark: Benchmark = self._get_benchmark(args)
+    benchmark.prepare_cli_args(args)
     self._process_browser_config_args(args)
     self._log_startup(benchmark, args.browser_config.variants)
     args.browser = self._get_browsers(args)

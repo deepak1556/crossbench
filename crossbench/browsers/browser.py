@@ -424,10 +424,15 @@ class Browser(abc.ABC):
   def _get_browser_flags_for_session(
       self, session: BrowserSessionRunGroup) -> tuple[str, ...]:
     flags_copy: Flags = self.flags.copy()
-    flags_copy.update(session.extra_flags)
+    flags_copy.update(session.launcher_extra_flags)
     flags_copy.update(self.network.extra_flags(self.attributes()))
     flags_copy = self._filter_flags_for_run(flags_copy)
     return tuple(flags_copy)
+
+  def get_launcher_flags(self,
+                         session: BrowserSessionRunGroup) -> tuple[str, ...]:
+    """Returns the complete Chromium flags for an external app launcher."""
+    return self._get_browser_flags_for_session(session)
 
   def _filter_flags_for_run(self, flags: FlagsT) -> FlagsT:
     return flags

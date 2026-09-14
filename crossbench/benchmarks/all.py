@@ -8,6 +8,7 @@ from crossbench.benchmarks.blink_ai import BlinkAIBenchmark
 from crossbench.benchmarks.devtools_frontend.devtools_frontend_benchmark import \
     DevToolsFrontendBenchmark
 from crossbench.benchmarks.embedder import EmbedderBenchmark
+from crossbench.benchmarks.electron import ElectronStoryBenchmark
 from crossbench.benchmarks.jetstream import JetStream11Benchmark, \
     JetStream20Benchmark, JetStream21Benchmark, JetStream22Benchmark, \
     JetStream30Benchmark, JetStreamMainBenchmark
@@ -41,6 +42,7 @@ __all__ = [
     "BlinkAIBenchmark",
     "DevToolsFrontendBenchmark",
     "EmbedderBenchmark",
+    "ElectronStoryBenchmark",
     "JetStream11Benchmark",
     "JetStream20Benchmark",
     "JetStream21Benchmark",

@@ -104,7 +104,7 @@ class D8(ShellBrowser):
   def start(self, session: BrowserSessionRunGroup) -> None:
     super().start(session)
     js_flags_copy = self.js_flags.copy()
-    js_flags_copy.update(session.extra_js_flags)
+    js_flags_copy.update(session.launcher_extra_js_flags)
     self._log_browser_start(tuple(js_flags_copy))
 
     self._url_mapper = D8URLMapper.create(self, session)

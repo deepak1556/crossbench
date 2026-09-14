@@ -48,6 +48,33 @@ Collect a basic Perfetto trace using the v8 preset:
 ./cb.py speedometer --probe='perfetto:v8'
 ```
 
+Run an app-owned Playwright Electron startup story on Windows:
+```powershell
+vpython3 cb.py electron `
+  --story-cli=C:\src\vscode\scripts\crossbench\electron-story.js `
+  --app-root=C:\src\vscode `
+  --electron-executable=C:\src\electron\out\Testing\electron.exe `
+  --external-story-timeout=90s `
+  --repeat=5 `
+  --probe='perfetto:electron-startup' `
+  --out-dir=C:\results\vscode-electron-startup `
+  --env-validation=warn
+```
+
+The experimental adapter invokes:
+`node <story-cli> --request <request.json> --result <result.json>
+--log <story.log>`. Crossbench owns repetitions, isolated `userDataDir`,
+`extensionsDir`, and `artifactsDir` paths, process timeout/lifecycle, validation,
+and aggregation. The app-owned CLI owns Playwright and Electron automation.
+The version 1 request includes `schemaVersion`, `story`, `runId`, exactly one of
+`appExecutable` or `appRoot`, optional `electronExecutable`, isolation paths,
+`timeoutMs`, `env`, and ordered Chromium `launchArgs`. The result contains
+matching identity fields, `status`, `valid`, `metadata`, `artifacts`, structured
+`error`/`exit`/`crash` state, and named phases with monotonic
+`startTimeMs`/`endTimeMs`/`durationMs` values. Additional phases are accepted;
+the VS Code cold-start story requires `processSpawn`, `firstWindow`,
+`didFinishLoad`, `monacoWorkbench`, and `workbenchRestored` by default.
+
 Use a custom chrome build and only run a subset of the stories:
 ```bash
 ./cb.py speedometer --browser=$PATH --probe='profiling' --story='jQuery.*'

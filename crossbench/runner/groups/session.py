@@ -98,7 +98,8 @@ class BrowserSessionRunGroup(RunGroup, ResultOrigin):
   def _validate(self) -> None:
     if not self._runs:
       raise ValueError("BrowserSessionRunGroup must be non-empty.")
-    self.browser.validate_env(self.env)
+    if self.benchmark.manages_browser_process:
+      self.browser.validate_env(self.env)
     for run in self.runs:
       run.validate_env(self.env)
     self._validate_same_browser_probes()
@@ -208,6 +209,14 @@ class BrowserSessionRunGroup(RunGroup, ResultOrigin):
     self._state.expect_before(State.RUNNING)
     return self._extra_flags
 
+  @property
+  def launcher_extra_flags(self) -> Flags:
+    return self._extra_flags.copy()
+
+  @property
+  def launcher_extra_js_flags(self) -> JSFlags:
+    return self._extra_js_flags.copy()
+
   def add_flag_details(self, details_json: JsonDict) -> None:
     assert isinstance(details_json["js_flags"], tuple)
     details_json["js_flags"] += tuple(self._extra_js_flags)
@@ -301,6 +310,8 @@ class BrowserSessionRunGroup(RunGroup, ResultOrigin):
 
   def _setup_browser(self) -> None:
     self._state.expect(State.SETUP)
+    if not self.benchmark.manages_browser_process:
+      return
     self.browser.setup()
 
   def _setup_session_dir(self) -> None:
@@ -343,6 +354,9 @@ class BrowserSessionRunGroup(RunGroup, ResultOrigin):
     self._state.expect(State.STARTING)
     if is_dry_run:
       logging.info("BROWSER: %s", self.browser.path)
+      return
+    if not self.benchmark.manages_browser_process:
+      logging.info("APP LAUNCH DELEGATED TO STORY: %s", self.browser.path)
       return
     assert self.network.is_running, "Network isn't running yet"
     assert self._probe_session_context_manager.is_running

@@ -253,10 +253,10 @@ class ChromiumBased(Browser):
   def _get_browser_flags_for_session(
       self, session: BrowserSessionRunGroup) -> tuple[str, ...]:
     js_flags_copy = self.js_flags.copy()
-    js_flags_copy.update(session.extra_js_flags)
+    js_flags_copy.update(session.launcher_extra_js_flags)
 
     flags_copy = self.flags.copy()
-    flags_copy.update(session.extra_flags)
+    flags_copy.update(session.launcher_extra_flags)
     flags_copy.update(self.network.extra_flags(self.attributes()))
     self._handle_viewport_flags(flags_copy)
 

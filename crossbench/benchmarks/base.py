@@ -186,6 +186,13 @@ class Benchmark(abc.ABC):
   def setup_session_network(self, session: BrowserSessionRunGroup) -> None:
     del session
 
+  def prepare_cli_args(self, args: argparse.Namespace) -> None:
+    del args
+
+  @property
+  def manages_browser_process(self) -> bool:
+    return True
+
   def teardown(self, runner: Runner) -> None:
     del runner
 

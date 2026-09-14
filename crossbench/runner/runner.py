@@ -617,7 +617,11 @@ class Runner:
           self._setup_validate_browser(browser)
 
   def _setup_validate_browser(self, browser: Browser) -> None:
-    browser.validate()
+    if self.benchmark.manages_browser_process:
+      browser.validate()
+    else:
+      browser.validate_flags()
+      browser.validate_network()
     for probe in browser.probes:
       assert probe.name in self._probes, (
           f"Browser {browser} probe {probe} not in Runner.probes. "

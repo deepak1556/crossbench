@@ -142,6 +142,7 @@ class CrossBenchCLI:
       benchmarks.BrowserStartupBenchmark,
       benchmarks.DevToolsFrontendBenchmark,
       benchmarks.EmbedderBenchmark,
+      benchmarks.ElectronStoryBenchmark,
       # JetStream:
       benchmarks.JetStream11Benchmark,
       benchmarks.JetStream20Benchmark,

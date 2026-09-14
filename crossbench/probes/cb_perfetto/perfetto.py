@@ -26,7 +26,7 @@ from crossbench.probes.cb_perfetto.context.chromeos import \
 from crossbench.probes.cb_perfetto.context.desktop import \
     DesktopPerfettoProbeContext
 from crossbench.probes.cb_perfetto.context.windows import \
-    WindowsPerfettoProbeContext
+    ExternalWindowsPerfettoProbeContext, WindowsPerfettoProbeContext
 from crossbench.probes.cb_perfetto.start_tracing_sequence import \
     StartTracingSequence
 from crossbench.probes.probe import Probe, ProbeConfigParser, ProbeKeyT
@@ -427,6 +427,8 @@ class PerfettoProbe(Probe):
     if run.browser_platform.is_android:
       return AndroidPerfettoProbeContext(self, run)
     if run.browser_platform.is_win:
+      if not run.benchmark.manages_browser_process:
+        return ExternalWindowsPerfettoProbeContext(self, run)
       return WindowsPerfettoProbeContext(self, run)
     return DesktopPerfettoProbeContext(self, run)
 

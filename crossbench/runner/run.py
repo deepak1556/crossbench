@@ -383,7 +383,7 @@ class Run(ResultOrigin):
 
   def _run(self, is_dry_run: bool) -> None:
     self._state.transition(State.READY, to=State.RUN)
-    if not is_dry_run:
+    if not is_dry_run and self.benchmark.manages_browser_process:
       self._run_splashscreen()
     with self._probe_context_manager.open(is_dry_run):
       logging.info("RUNNING STORY")
@@ -436,6 +436,8 @@ class Run(ResultOrigin):
       self._story.teardown(self)
 
   def _run_success_validation(self) -> None:
+    if not self.benchmark.manages_browser_process:
+      return
     try:
       self.environment.check_browser_focused(self.browser)
     except ValidationError as e:
@@ -456,6 +458,8 @@ class Run(ResultOrigin):
 
   def _teardown_browser(self, is_dry_run: bool) -> None:
     if is_dry_run:
+      return
+    if not self.benchmark.manages_browser_process:
       return
     if not self.browser_session.is_last_run(self):
       logging.debug("Skipping browser teardown (not last in session): %s", self)
