@@ -84,6 +84,16 @@ class ExternalStoryProtocolTestCase(unittest.TestCase):
                      result.metrics()["phases"]["workbenchRestored"])
     self.assertEqual(result.metrics()["durationMs"], 60)
 
+  def test_deprecated_process_spawn_alias_not_aggregated(self) -> None:
+    data = valid_result()
+    phases = data["phases"]
+    assert isinstance(phases, dict)
+    phases["processSpawn"] = phases["electronLaunch"]
+    result = ExternalStoryResult.parse(data, "0-0-default", DEFAULT_STORY,
+                                       DEFAULT_REQUIRED_PHASES)
+
+    self.assertNotIn("processSpawn", result.metrics()["phases"])
+
   def test_required_phase_order(self) -> None:
     data = valid_result()
     phases = data["phases"]
@@ -372,6 +382,52 @@ class ExternalStoryInvocationTestCase(unittest.TestCase):
     self.assertFalse(story.has_result(failing_run))
     self.assertTrue(story.has_result(successful_run))
 
+  def test_generic_non_node_runner_argv(self) -> None:
+    cli = self._write_story_cli("""
+        request = json.loads(pathlib.Path(args.request).read_text())
+        pathlib.Path(args.result).write_text(
+            json.dumps({
+                "schemaVersion": 1,
+                "runId": request["runId"],
+                "story": request["story"],
+                "status": "success",
+                "valid": True,
+                "phases": {
+                    name: {
+                        "startTimeMs": index * 10,
+                        "endTimeMs": (index + 1) * 10,
+                        "durationMs": 10,
+                    }
+                    for index, name in enumerate(REQUIRED_PHASES)
+                },
+                "shutdown": {
+                    "status": "clean",
+                    "exitCode": 0,
+                    "signal": None,
+                },
+                "metadata": {},
+                "artifacts": {},
+            }))
+    """)
+    story = ExternalElectronStory(
+        DEFAULT_STORY,
+        None,
+        None,
+        self.app_executable,
+        None,
+        None,
+        dt.timedelta(seconds=5),
+        DEFAULT_REQUIRED_PHASES,
+        {},
+        (sys.executable, str(cli)),
+        cli.parent,
+    )
+
+    run = self._run()
+    story.run(run)
+
+    self.assertTrue(story.has_result(run))
+
   def test_runner_merges_repetitions_without_starting_browser(self) -> None:
     self.addCleanup(logging.shutdown)
     cli = self._write_story_cli("""
@@ -529,11 +585,21 @@ class ExternalStoryInvocationTestCase(unittest.TestCase):
         ExternalElectronStory,
         "launcher_version",
         new_callable=mock.PropertyMock,
-        return_value="1.2.3.4"):
+        return_value="Chromium 100.2.3.4"):
       benchmark.prepare_cli_args(args)
 
     self.assertEqual(len(args.browser), 1)
     self.assertIsNone(args.browser_config)
+
+  def test_launcher_version_accepts_packaged_app_version(self) -> None:
+    story = self._story(self._write_story_cli(""))
+
+    with mock.patch.object(
+        plt.PLATFORM, "app_version", return_value="1.137.0"):
+      self.assertEqual(story.launcher_version, "Chromium 137.0.0.0")
+    with mock.patch.object(
+        plt.PLATFORM, "app_version", return_value="1.9.0"):
+      self.assertEqual(story.launcher_version, "Chromium 100.0.0.0")
 
   def test_prepare_cli_args_preserves_browser_config_path(self) -> None:
     story = self._story(self._write_story_cli(""))

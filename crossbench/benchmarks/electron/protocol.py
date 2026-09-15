@@ -172,12 +172,21 @@ class ExternalStoryResult:
   def metrics(self) -> JsonDict:
     first_start = min(phase.start_time_ms for phase in self.phases.values())
     last_end = max(phase.end_time_ms for phase in self.phases.values())
+    phases = self.phases
+    electron_launch = phases.get("electronLaunch")
+    process_spawn = phases.get("processSpawn")
+    if electron_launch == process_spawn:
+      phases = {
+          name: phase
+          for name, phase in phases.items()
+          if name != "processSpawn"
+      }
     return {
         "valid": 1,
         "durationMs": last_end - first_start,
         "phases": {
             name: {
                 "durationMs": phase.duration_ms,
-            } for name, phase in self.phases.items()
+            } for name, phase in phases.items()
         },
     }

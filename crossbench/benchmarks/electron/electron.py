@@ -18,6 +18,7 @@ from crossbench import plt
 from crossbench.benchmarks.base import Benchmark
 from crossbench.benchmarks.electron.protocol import ExternalStoryResult, \
     SCHEMA_VERSION
+from crossbench.benchmarks.electron.story_pack import StoryPackManifest
 from crossbench.cli.config.browser import BrowserConfig, BrowserType
 from crossbench.cli.config.browser_variants import BaseBrowserVariantsConfig
 from crossbench.parse import DurationParser, ObjectParser, PathParser
@@ -63,14 +64,16 @@ class ExternalElectronStory(Story):
   def __init__(
       self,
       name: str,
-      story_runtime: pth.AnyPath,
-      story_cli: pth.LocalPath,
+      story_runtime: pth.AnyPath | None,
+      story_cli: pth.LocalPath | None,
       app_executable: pth.LocalPath | None,
       app_root: pth.LocalPath | None,
       electron_executable: pth.LocalPath | None,
       timeout: dt.timedelta,
       required_phases: tuple[str, ...],
       env: Mapping[str, str],
+      runner_argv: tuple[str, ...] = (),
+      runner_cwd: pth.LocalPath | None = None,
   ) -> None:
     super().__init__(name, duration=timeout)
     self._story_runtime = story_runtime
@@ -84,6 +87,11 @@ class ExternalElectronStory(Story):
     self._timeout = timeout
     self._required_phases = required_phases
     self._env = dict(env)
+    self._runner_argv = runner_argv
+    self._runner_cwd = runner_cwd
+    if not runner_argv and (story_runtime is None or story_cli is None):
+      raise ValueError(
+          "Raw story execution requires story_runtime and story_cli.")
     self._results: dict[int, ExternalStoryResult] = {}
     self._result_paths: dict[int, pth.LocalPath] = {}
 
@@ -115,8 +123,18 @@ class ExternalElectronStory(Story):
     if " " in version:
       version = version.rsplit(" ", maxsplit=1)[1]
     parts = version.removeprefix("v").split(".")
-    parts.extend("0" for _ in range(4 - len(parts)))
-    return ".".join(parts)
+    major = 100
+    for part in parts[:2]:
+      try:
+        candidate = int(part)
+      except ValueError:
+        continue
+      if candidate >= 10:
+        major = candidate
+        break
+    # This inferred browser is a non-launched placeholder used to integrate
+    # with the regular runner. External story metadata remains authoritative.
+    return f"Chromium {major}.0.0.0"
 
   def has_result(self, run: Run) -> bool:
     return id(run) in self._results
@@ -130,8 +148,7 @@ class ExternalElectronStory(Story):
     request = self._create_request(run, paths)
     self._write_json(paths["request"], request)
     command = (
-        self._story_runtime,
-        self._story_cli,
+        *self._command_prefix,
         "--request",
         paths["request"],
         "--result",
@@ -169,6 +186,21 @@ class ExternalElectronStory(Story):
         "extensionsDir": extensions_dir,
         "artifactsDir": artifacts_dir,
     }
+
+  @property
+  def _command_prefix(self) -> tuple[pth.AnyPath | str, ...]:
+    if self._runner_argv:
+      return self._runner_argv
+    assert self._story_runtime
+    assert self._story_cli
+    return (self._story_runtime, self._story_cli)
+
+  @property
+  def _command_cwd(self) -> pth.LocalPath:
+    if self._runner_cwd:
+      return self._runner_cwd
+    assert self._story_cli
+    return self._story_cli.parent
 
   def _create_request(self, run: Run,
                       paths: Mapping[str, pth.LocalPath]) -> JsonDict:
@@ -217,7 +249,7 @@ class ExternalElectronStory(Story):
           stdout=process_log,
           stderr=subprocess.STDOUT,
           env=env,
-          cwd=self._story_cli.parent)
+          cwd=self._command_cwd)
       try:
         process_timeout = self._timeout + PROCESS_CLEANUP_GRACE
         return_code = process.wait(timeout=process_timeout.total_seconds())
@@ -289,16 +321,20 @@ class ElectronStoryBenchmark(Benchmark):
   def add_cli_arguments(cls, parser: CBArgumentParser) -> CBArgumentParser:
     super().add_cli_arguments(parser)
     group = parser.add_argument_group("External Electron Story Options")
-    group.add_argument(
+    story_source = group.add_mutually_exclusive_group(required=True)
+    story_source.add_argument(
         "--story-cli",
-        required=True,
         type=PathParser.file_path,
         help="App-owned Node/TypeScript Playwright story CLI module.")
+    story_source.add_argument(
+        "--story-pack",
+        type=StoryPackManifest.parse,
+        help="Versioned standalone story-pack manifest.")
     group.add_argument(
         "--story-runtime",
-        default=pth.AnyPath("node.exe" if plt.PLATFORM.is_win else "node"),
+        default=None,
         type=lambda value: PathParser.binary_path(value, plt.PLATFORM),
-        help="Runtime used to execute --story-cli. Defaults to node.")
+        help="Runtime used with raw --story-cli. Defaults to node.")
     launch_target = group.add_mutually_exclusive_group(required=True)
     launch_target.add_argument(
         "--app-executable",
@@ -314,12 +350,12 @@ class ElectronStoryBenchmark(Benchmark):
         help="Optional Electron executable override for local builds.")
     group.add_argument(
         "--external-story-name",
-        default=DEFAULT_STORY,
+        default=None,
         type=ObjectParser.non_empty_str,
         help="Versioned app-owned story identifier.")
     group.add_argument(
         "--external-story-timeout",
-        default=dt.timedelta(seconds=60),
+        default=None,
         type=DurationParser.positive_duration,
         help="Hard timeout for the external story process.")
     group.add_argument(
@@ -342,19 +378,46 @@ class ElectronStoryBenchmark(Benchmark):
   @override
   def kwargs_from_cli(cls, args: argparse.Namespace) -> dict[str, Any]:
     kwargs = super().kwargs_from_cli(args)
+    runner_argv: tuple[str, ...] = ()
+    runner_cwd = None
+    story_runtime = args.story_runtime
+    story_cli = args.story_cli
+    story_name = args.external_story_name
+    timeout = args.external_story_timeout
     required_phases = args.required_phase
-    if required_phases is None:
-      required_phases = DEFAULT_REQUIRED_PHASES
+    if story_pack := args.story_pack:
+      if story_runtime:
+        raise argparse.ArgumentTypeError(
+            "--story-runtime cannot be used with --story-pack.")
+      descriptor = story_pack.story(story_name)
+      story_name = descriptor.name
+      timeout = timeout or dt.timedelta(
+          milliseconds=descriptor.default_timeout_ms)
+      required_phases = required_phases or descriptor.required_phases
+      runner_argv = story_pack.runner_argv
+      runner_cwd = story_pack.path.parent
+    else:
+      assert story_cli
+      story_runtime = story_runtime or pth.AnyPath(
+          "node.exe" if plt.PLATFORM.is_win else "node")
+      story_name = story_name or DEFAULT_STORY
+      timeout = timeout or dt.timedelta(seconds=60)
+      required_phases = required_phases or DEFAULT_REQUIRED_PHASES
+    assert story_name
+    assert timeout
+    assert required_phases
     story = ExternalElectronStory(
-        args.external_story_name,
-        args.story_runtime,
-        args.story_cli,
+        story_name,
+        story_runtime,
+        story_cli,
         args.app_executable,
         args.app_root,
         args.electron_executable,
-        args.external_story_timeout,
+        timeout,
         tuple(required_phases),
         dict(args.story_env),
+        runner_argv,
+        runner_cwd,
     )
     kwargs["stories"] = (story,)
     return kwargs

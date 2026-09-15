@@ -48,24 +48,39 @@ Collect a basic Perfetto trace using the v8 preset:
 ./cb.py speedometer --probe='perfetto:v8'
 ```
 
-Run an app-owned Playwright Electron startup story on Windows:
+List and validate a standalone application story pack without launching it:
+```powershell
+vpython3 cb.py story-pack list C:\benchmarks\vscode-story-pack\manifest.json
+vpython3 cb.py story-pack validate C:\benchmarks\vscode-story-pack\manifest.json
+```
+
+Run a packaged story against an already-built application on Windows:
 ```powershell
 vpython3 cb.py electron `
-  --story-cli=C:\src\vscode\test\automation\out\benchmark\storyCli.js `
-  --app-root=C:\src\vscode `
-  --electron-executable=C:\src\electron\out\Testing\electron.exe `
-  --external-story-timeout=90s `
+  --story-pack=C:\benchmarks\vscode-story-pack\manifest.json `
+  --external-story-name=vscode.empty-workbench.cold-start `
+  --app-executable='C:\Program Files\Microsoft VS Code\Code.exe' `
   --repeat=5 `
-  --probe='perfetto:electron-startup' `
   --out-dir=C:\results\vscode-electron-startup `
   --env-validation=warn
 ```
 
-The experimental adapter invokes:
-`node <story-cli> --request <request.json> --result <result.json>
---log <story.log>`. Crossbench owns repetitions, isolated `userDataDir`,
-`extensionsDir`, and `artifactsDir` paths, process timeout/lifecycle, validation,
-and aggregation. The app-owned CLI owns Playwright and Electron automation.
+Story-pack manifest schema version 1 declares its external protocol version,
+pack identity/version, a runner `argv` array, and story descriptors. Each
+descriptor declares a stable name, description, default timeout, ordered
+required phases, and optional platforms, capabilities, recommended probes, and
+trace interval markers. Runner and asset paths are resolved relative to the
+manifest directory. Crossbench appends `--request <request.json> --result
+<result.json> --log <story.log>` without invoking a shell.
+
+Story packs are trusted local executable code. Crossbench validates their
+manifest and protocol results, but does not sandbox their runner. Probe entries
+are recommendations only and never automatically enable probes; Crossbench
+command-line/configuration choices remain authoritative.
+
+Crossbench owns repetitions, isolated `userDataDir`, `extensionsDir`, and
+`artifactsDir` paths, process timeout/lifecycle, validation, and aggregation.
+The app-owned runner owns Playwright and Electron automation.
 The version 1 request includes `schemaVersion`, `story`, `runId`, exactly one of
 `appExecutable` or `appRoot`, optional `electronExecutable`, isolation paths,
 `timeoutMs`, `env`, and ordered Chromium `launchArgs`. The result contains
@@ -81,6 +96,19 @@ after the app-owned story has completed, recorded its `shutdown` phase, and
 reported `shutdown: {status: "clean", exitCode: 0, signal: null}`.
 Crossbench aggregates phase durations and total story duration, not
 run-origin-relative monotonic timestamps.
+
+The lower-level development/source compatibility mode remains available:
+```powershell
+vpython3 cb.py electron `
+  --story-cli=C:\src\vscode\test\automation\out\benchmark\storyCli.js `
+  --story-runtime=node `
+  --app-root=C:\src\vscode `
+  --electron-executable=C:\src\electron\out\Testing\electron.exe `
+  --external-story-name=vscode.empty-workbench.cold-start `
+  --external-story-timeout=90s `
+  --out-dir=C:\results\vscode-electron-development `
+  --env-validation=warn
+```
 
 Keep low-overhead samples separate from diagnostic tracing. For an actionable
 V8, main-thread, scheduler, frame, and app-mark summary, add:
