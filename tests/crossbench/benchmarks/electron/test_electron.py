@@ -47,6 +47,10 @@ def valid_result(run_id: str = "0-0-default") -> dict[str, object]:
           name: phase(index * 10, (index + 1) * 10)
           for index, name in enumerate(DEFAULT_REQUIRED_PHASES)
       },
+      "exit": {
+          "code": 0,
+          "signal": None,
+      },
       "metadata": {
           "app": "fake"
       },
@@ -70,6 +74,28 @@ class ExternalStoryProtocolTestCase(unittest.TestCase):
     self.assertIn("appSpecific", result.phases)
     self.assertEqual(
         result.metrics()["phases"]["workbenchRestored"]["durationMs"], 10)
+    self.assertNotIn("startTimeMs",
+                     result.metrics()["phases"]["workbenchRestored"])
+    self.assertEqual(result.metrics()["durationMs"], 60)
+
+  def test_required_phase_order(self) -> None:
+    data = valid_result()
+    phases = data["phases"]
+    assert isinstance(phases, dict)
+    phases["didFinishLoad"] = phase(5, 25)
+    with self.assertRaisesRegex(ExternalStoryProtocolError,
+                                "didFinishLoad.*firstWindow"):
+      ExternalStoryResult.parse(data, "0-0-default", DEFAULT_STORY,
+                                DEFAULT_REQUIRED_PHASES)
+
+  def test_extra_phase_may_overlap(self) -> None:
+    data = valid_result()
+    phases = data["phases"]
+    assert isinstance(phases, dict)
+    phases["processSpawn"] = phase(0, 10)
+    result = ExternalStoryResult.parse(data, "0-0-default", DEFAULT_STORY,
+                                       DEFAULT_REQUIRED_PHASES)
+    self.assertIn("processSpawn", result.phases)
 
   def test_schema_mismatch(self) -> None:
     data = valid_result()
@@ -178,6 +204,50 @@ class ExternalStoryInvocationTestCase(unittest.TestCase):
     self.assertTrue(pth.LocalPath(request["userDataDir"]).is_dir())
     self.assertEqual(story.result(run).metadata["app"], "fake")
     self.assertTrue(story.result_path(run).is_file())
+
+  def test_app_root_uses_browser_variant_executable(self) -> None:
+    cli = self._write_story_cli("""
+        request = json.loads(pathlib.Path(args.request).read_text())
+        result = {
+            "schemaVersion": 1,
+            "runId": request["runId"],
+            "story": request["story"],
+            "status": "success",
+            "valid": True,
+            "phases": {
+                name: {
+                    "startTimeMs": index * 10,
+                    "endTimeMs": (index + 1) * 10,
+                    "durationMs": 10,
+                }
+                for index, name in enumerate(REQUIRED_PHASES)
+            },
+            "metadata": {},
+            "artifacts": {},
+        }
+        pathlib.Path(args.result).write_text(json.dumps(result))
+    """)
+    story = ExternalElectronStory(
+        DEFAULT_STORY,
+        pth.AnyPath(sys.executable),
+        cli,
+        None,
+        self.root,
+        None,
+        dt.timedelta(seconds=5),
+        DEFAULT_REQUIRED_PHASES,
+        {},
+    )
+    run = self._run()
+    variant_executable = self.root / "variant electron.exe"
+    variant_executable.touch()
+    run.browser.path = variant_executable
+
+    story.run(run)
+
+    request_path = run.out_dir / "external_story" / "request.json"
+    request = json.loads(request_path.read_text(encoding="utf-8"))
+    self.assertEqual(request["electronExecutable"], str(variant_executable))
 
   def test_invalid_json(self) -> None:
     cli = self._write_story_cli("""
@@ -302,6 +372,8 @@ class ExternalStoryInvocationTestCase(unittest.TestCase):
       merged = json.load(merged_file)
     self.assertEqual(merged["phases/workbenchRestored/durationMs"]["average"],
                      10)
+    self.assertNotIn("phases/workbenchRestored/startTimeMs", merged)
+    self.assertEqual(merged["durationMs"]["average"], 60)
 
   @unittest.skipUnless(plt.PLATFORM.is_win, "Windows startup tracing test")
   def test_runner_passes_perfetto_startup_flags(self) -> None:
@@ -374,6 +446,49 @@ class ExternalStoryInvocationTestCase(unittest.TestCase):
         any(arg.startswith("--trace-startup-file=") for arg in launch_args))
     self.assertTrue(any("--perfetto-code-logger" in arg for arg in launch_args))
 
+  def test_launcher_flags_preserve_merged_values_and_order(self) -> None:
+    run = self._run()
+    run.browser.get_launcher_flags.return_value = (
+        "--js-flags=--no-opt,--trace-ic",
+        "--enable-features=FeatureA,FeatureB",
+        "--disable-features=FeatureC",
+        "--path-with-space=C:\\Program Files\\Electron",
+    )
+    self.assertEqual(
+        ExternalElectronStory._launcher_flags(run),
+        list(run.browser.get_launcher_flags.return_value))
+
+  def test_prepare_cli_args_infers_browser_from_empty_config(self) -> None:
+    story = self._story(self._write_story_cli(""))
+    benchmark = ElectronStoryBenchmark((story,))
+    args = SimpleNamespace(
+        browser=None, browser_config=SimpleNamespace(browsers=()))
+
+    with mock.patch.object(
+        ExternalElectronStory,
+        "launcher_version",
+        new_callable=mock.PropertyMock,
+        return_value="1.2.3.4"):
+      benchmark.prepare_cli_args(args)
+
+    self.assertEqual(len(args.browser), 1)
+    self.assertIsNone(args.browser_config)
+
+  def test_interrupt_kills_process_tree(self) -> None:
+    story = self._story(self._write_story_cli(""))
+    process = mock.Mock()
+    process.wait.side_effect = [KeyboardInterrupt, 0]
+    platform = mock.Mock()
+    platform.popen.return_value = process
+    run = self._run()
+    run.browser_platform = platform
+
+    with self.assertRaises(KeyboardInterrupt):
+      story._run_process(run, ("runtime", "story"), self.root / "process.log")
+
+    platform.kill.assert_called_once_with(process)
+    self.assertEqual(process.wait.call_count, 2)
+
   def _story(
       self,
       cli: pth.LocalPath,
@@ -396,6 +511,7 @@ class ExternalStoryInvocationTestCase(unittest.TestCase):
     out_dir = self.root / "run"
     out_dir.mkdir(exist_ok=True)
     browser = mock.Mock()
+    browser.path = self.app_executable
     browser.get_launcher_flags.return_value = ("--trace-startup-file=trace.pb",)
     return SimpleNamespace(
         out_dir=out_dir,

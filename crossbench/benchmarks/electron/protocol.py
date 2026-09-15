@@ -78,9 +78,25 @@ class ExternalStoryResult:
     if missing_phases:
       raise ExternalStoryProtocolError(
           f"Result is missing required phases: {sorted(missing_phases)}")
+    cls._validate_phase_order(phases, required_phases)
     metadata = cls._dict(value, "metadata")
     artifacts = cls._dict(value, "artifacts")
     return cls(run_id, story, phases, metadata, artifacts)
+
+  @staticmethod
+  def _validate_phase_order(
+      phases: Mapping[str, ExternalStoryPhase],
+      required_phases: tuple[str, ...],
+  ) -> None:
+    previous_name: str | None = None
+    previous_start = 0.0
+    for name in required_phases:
+      phase = phases[name]
+      if previous_name and phase.start_time_ms < previous_start:
+        raise ExternalStoryProtocolError(
+            f"Required phase {name!r} starts before {previous_name!r}.")
+      previous_name = name
+      previous_start = phase.start_time_ms
 
   @staticmethod
   def _validate_identity(value: Mapping[str, Any], run_id: str,
@@ -135,13 +151,14 @@ class ExternalStoryResult:
     return item
 
   def metrics(self) -> JsonDict:
+    first_start = min(phase.start_time_ms for phase in self.phases.values())
+    last_end = max(phase.end_time_ms for phase in self.phases.values())
     return {
         "valid": 1,
+        "durationMs": last_end - first_start,
         "phases": {
             name: {
                 "durationMs": phase.duration_ms,
-                "startTimeMs": phase.start_time_ms,
-                "endTimeMs": phase.end_time_ms,
             } for name, phase in self.phases.items()
         },
     }

@@ -51,7 +51,7 @@ Collect a basic Perfetto trace using the v8 preset:
 Run an app-owned Playwright Electron startup story on Windows:
 ```powershell
 vpython3 cb.py electron `
-  --story-cli=C:\src\vscode\scripts\crossbench\electron-story.js `
+  --story-cli=C:\src\vscode\test\automation\out\benchmark\storyCli.js `
   --app-root=C:\src\vscode `
   --electron-executable=C:\src\electron\out\Testing\electron.exe `
   --external-story-timeout=90s `
@@ -72,8 +72,27 @@ The version 1 request includes `schemaVersion`, `story`, `runId`, exactly one of
 matching identity fields, `status`, `valid`, `metadata`, `artifacts`, structured
 `error`/`exit`/`crash` state, and named phases with monotonic
 `startTimeMs`/`endTimeMs`/`durationMs` values. Additional phases are accepted;
-the VS Code cold-start story requires `processSpawn`, `firstWindow`,
-`didFinishLoad`, `monacoWorkbench`, and `workbenchRestored` by default.
+the repeated `--required-phase` order defines the expected start order while
+additional phases may overlap. The VS Code cold-start story requires
+`electronLaunch`, `firstWindow`, `didFinishLoad`, `monacoWorkbench`,
+`workbenchRestored`, and `shutdown` by default. Its deprecated `processSpawn`
+alias is accepted as an additional phase. A successful result is valid only
+after the app-owned story has completed and recorded bounded clean shutdown.
+Crossbench aggregates phase durations and total story duration, not
+run-origin-relative monotonic timestamps.
+
+Keep low-overhead samples separate from diagnostic tracing. For an actionable
+V8, main-thread, scheduler, frame, and app-mark summary, add:
+```powershell
+  --probe='perfetto:electron-startup' `
+  --probe='trace_processor:{queries:[electron_startup]}'
+```
+The query writes `electron_startup.csv` and `electron_startup.json` next to the
+processed trace results. When the trace contains
+`vscode.window-resize.measure.start/end` marks, the query limits diagnostics to
+that interval; otherwise it summarizes the full trace. On Windows, use a short
+`--out-dir` path when the application has components that are not long-path
+aware.
 
 Use a custom chrome build and only run a subset of the stories:
 ```bash

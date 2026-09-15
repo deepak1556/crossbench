@@ -33,11 +33,12 @@ if TYPE_CHECKING:
 
 DEFAULT_STORY: Final[str] = "vscode.empty-workbench.cold-start"
 DEFAULT_REQUIRED_PHASES: Final[tuple[str, ...]] = (
-    "processSpawn",
+    "electronLaunch",
     "firstWindow",
     "didFinishLoad",
     "monacoWorkbench",
     "workbenchRestored",
+    "shutdown",
 )
 PROCESS_CLEANUP_GRACE: Final[dt.timedelta] = dt.timedelta(seconds=5)
 
@@ -184,11 +185,18 @@ class ExternalElectronStory(Story):
     }
     if self._app_executable:
       request["appExecutable"] = str(self._app_executable)
-    if self._electron_executable:
-      request["electronExecutable"] = str(self._electron_executable)
+    if electron_executable := self._electron_executable_for_run(run):
+      request["electronExecutable"] = str(electron_executable)
     if self._app_root:
       request["appRoot"] = str(self._app_root)
     return request
+
+  def _electron_executable_for_run(self, run: Run) -> pth.LocalPath | None:
+    if self._electron_executable:
+      return self._electron_executable
+    if self._app_root:
+      return pth.LocalPath(run.browser.path)
+    return None
 
   @staticmethod
   def _launcher_flags(run: Run) -> list[str]:
@@ -217,6 +225,10 @@ class ExternalElectronStory(Story):
         process.wait()
         raise TimeoutError(f"External story timed out after {self._timeout}. "
                            f"Process log: {log_path}") from e
+      except BaseException:
+        run.browser_platform.kill(process)
+        process.wait()
+        raise
     return return_code
 
   def _load_result(self, result_path: pth.LocalPath,
@@ -253,7 +265,9 @@ class ElectronStoryBenchmark(Benchmark):
 
   @override
   def prepare_cli_args(self, args: argparse.Namespace) -> None:
-    if args.browser or args.browser_config:
+    if args.browser:
+      return
+    if args.browser_config and args.browser_config.browsers:
       return
     story = self.stories[0]
     assert isinstance(story, ExternalElectronStory)
@@ -263,6 +277,8 @@ class ElectronStoryBenchmark(Benchmark):
             browser_type=BrowserType.CHROMIUM,
             version=story.launcher_version)
     ]
+    # Let the regular browser-config parser consume the inferred browser.
+    args.browser_config = None
 
   @classmethod
   @override
@@ -307,7 +323,8 @@ class ElectronStoryBenchmark(Benchmark):
         action="append",
         default=None,
         type=ObjectParser.non_empty_str,
-        help="Required result phase. Repeat to override the VS Code defaults.")
+        help=("Required result phase in expected start order. Repeat to "
+              "override the VS Code defaults. Extra phases may overlap."))
     group.add_argument(
         "--story-env",
         action="append",
