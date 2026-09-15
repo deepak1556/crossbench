@@ -129,6 +129,25 @@ class ExternalStoryResult:
     if value.get("error") is not None:
       raise ExternalStoryProtocolError(
           f"External story reported an error: {value['error']!r}")
+    shutdown = value.get("shutdown")
+    if not isinstance(shutdown, dict):
+      raise ExternalStoryProtocolError(
+          "Successful result is missing shutdown object.")
+    if shutdown.get("status") != "clean":
+      raise ExternalStoryProtocolError(
+          f"External story did not shut down cleanly: {shutdown!r}")
+    exit_code = shutdown.get("exitCode")
+    if (exit_code is not None and
+        (not isinstance(exit_code, int) or isinstance(exit_code, bool))):
+      raise ExternalStoryProtocolError(
+          f"External story reported invalid shutdown exitCode: {shutdown!r}")
+    if exit_code not in (None, 0):
+      raise ExternalStoryProtocolError(
+          f"External story reported nonzero shutdown exitCode: {shutdown!r}")
+    signal = shutdown.get("signal")
+    if signal is not None and not isinstance(signal, str):
+      raise ExternalStoryProtocolError(
+          f"External story reported invalid shutdown signal: {shutdown!r}")
     exit_state = value.get("exit")
     if exit_state:
       exit_code = exit_state.get("code")

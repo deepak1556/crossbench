@@ -19,6 +19,7 @@ from crossbench.benchmarks.base import Benchmark
 from crossbench.benchmarks.electron.protocol import ExternalStoryResult, \
     SCHEMA_VERSION
 from crossbench.cli.config.browser import BrowserConfig, BrowserType
+from crossbench.cli.config.browser_variants import BaseBrowserVariantsConfig
 from crossbench.parse import DurationParser, ObjectParser, PathParser
 from crossbench.probes.cb_perfetto.context.windows import \
     ExternalWindowsPerfettoProbeContext
@@ -267,8 +268,11 @@ class ElectronStoryBenchmark(Benchmark):
   def prepare_cli_args(self, args: argparse.Namespace) -> None:
     if args.browser:
       return
-    if args.browser_config and args.browser_config.browsers:
-      return
+    if args.browser_config is not None:
+      if not isinstance(args.browser_config, BaseBrowserVariantsConfig):
+        return
+      if args.browser_config:
+        return
     story = self.stories[0]
     assert isinstance(story, ExternalElectronStory)
     args.browser = [

@@ -77,7 +77,8 @@ additional phases may overlap. The VS Code cold-start story requires
 `electronLaunch`, `firstWindow`, `didFinishLoad`, `monacoWorkbench`,
 `workbenchRestored`, and `shutdown` by default. Its deprecated `processSpawn`
 alias is accepted as an additional phase. A successful result is valid only
-after the app-owned story has completed and recorded bounded clean shutdown.
+after the app-owned story has completed, recorded its `shutdown` phase, and
+reported `shutdown: {status: "clean", exitCode: 0, signal: null}`.
 Crossbench aggregates phase durations and total story duration, not
 run-origin-relative monotonic timestamps.
 

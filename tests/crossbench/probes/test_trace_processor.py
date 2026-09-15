@@ -151,6 +151,12 @@ class TraceProcessorProbeFakeFsTestCase(CrossbenchFakeFsTestCase):
     with self.assertRaises(ValueError):
       TraceProcessorProbe(output_to_clipboard=["invalid_choice"])
 
+  def test_tp_config_uses_portable_module_paths(self):
+    probe = TraceProcessorProbe()
+    extra_flags = probe.tp_config.extra_flags
+    module_path_index = extra_flags.index("--add-sql-package") + 1
+    self.assertNotIn("\\", extra_flags[module_path_index])
+
   def test_init_clipboard_missing_raises(self):
     mock_platform = unittest.mock.MagicMock()
     mock_platform.has_clipboard = False

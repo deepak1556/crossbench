@@ -7,6 +7,7 @@ from __future__ import annotations
 import collections
 import json
 import logging
+import tempfile
 from enum import StrEnum, unique
 from typing import TYPE_CHECKING, ClassVar, Final, Hashable, Iterable, Self
 
@@ -293,7 +294,7 @@ class TraceProcessorProbe(Probe):
 
     for module_path in self.module_paths:
       extra_flags.append("--add-sql-package")
-      extra_flags.append(str(module_path))
+      extra_flags.append(module_path.as_posix())
 
     return TraceProcessorConfig(
         bin_path=self.trace_processor_bin,
@@ -325,22 +326,25 @@ class TraceProcessorProbe(Probe):
     Runs all metrics and queries on an empty trace. This will ensure that they
     are correctly defined in trace processor.
     """
-    with TraceProcessor(trace="/dev/null", config=self.tp_config) as tp:
-      for metric in self.metrics:
-        with exceptions.capture(f"metric: {metric!r}"):
-          tp.metric([metric])
-      for query in self.queries:
-        with exceptions.capture(f"query: {query.name!r}"):
-          for platform in platforms:
-            with exceptions.capture(f"platform: {platform.name}"):
-              if resolved_query := query.resolve_for_platform(platform):
-                tp.query(resolved_query.sql)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+      empty_trace = pth.LocalPath(tmp_dir) / "empty.trace"
+      empty_trace.touch()
+      with TraceProcessor(trace=str(empty_trace), config=self.tp_config) as tp:
+        for metric in self.metrics:
+          with exceptions.capture(f"metric: {metric!r}"):
+            tp.metric([metric])
+        for query in self.queries:
+          with exceptions.capture(f"query: {query.name!r}"):
+            for platform in platforms:
+              with exceptions.capture(f"platform: {platform.name}"):
+                if resolved_query := query.resolve_for_platform(platform):
+                  tp.query(resolved_query.sql)
 
-      if summary_metrics := self.summary_metrics:
-        with exceptions.capture("summary metrics:"):
-          tp.trace_summary(
-              specs=list(self.metric_definitions),
-              metric_ids=list(summary_metrics))
+        if summary_metrics := self.summary_metrics:
+          with exceptions.capture("summary metrics:"):
+            tp.trace_summary(
+                specs=list(self.metric_definitions),
+                metric_ids=list(summary_metrics))
 
   def _add_cb_columns(self, df: pd.DataFrame, run: Run) -> pd.DataFrame:
     df["cb_browser"] = run.browser.unique_name

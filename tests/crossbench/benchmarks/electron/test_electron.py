@@ -22,6 +22,7 @@ from crossbench.benchmarks.electron.electron import DEFAULT_REQUIRED_PHASES, \
 from crossbench.benchmarks.electron.protocol import ExternalStoryPhase, \
     ExternalStoryProtocolError, ExternalStoryResult, SCHEMA_VERSION
 from crossbench.browsers.settings import Settings
+from crossbench.cli.config.browser_variants import BrowserVariantsConfig
 from crossbench.probes.cb_perfetto.perfetto import PerfettoProbe
 from crossbench.runner.runner import Runner
 from crossbench.runner.timing import Timing
@@ -49,6 +50,11 @@ def valid_result(run_id: str = "0-0-default") -> dict[str, object]:
       },
       "exit": {
           "code": 0,
+          "signal": None,
+      },
+      "shutdown": {
+          "status": "clean",
+          "exitCode": 0,
           "signal": None,
       },
       "metadata": {
@@ -118,6 +124,37 @@ class ExternalStoryProtocolTestCase(unittest.TestCase):
       ExternalStoryResult.parse(data, "0-0-default", DEFAULT_STORY,
                                 DEFAULT_REQUIRED_PHASES)
 
+  def test_missing_clean_shutdown(self) -> None:
+    data = valid_result()
+    del data["shutdown"]
+    with self.assertRaisesRegex(ExternalStoryProtocolError, "shutdown object"):
+      ExternalStoryResult.parse(data, "0-0-default", DEFAULT_STORY,
+                                DEFAULT_REQUIRED_PHASES)
+
+  def test_forced_shutdown(self) -> None:
+    data = valid_result()
+    data["shutdown"] = {
+        "status": "forced",
+        "exitCode": 0,
+        "signal": None,
+    }
+    with self.assertRaisesRegex(ExternalStoryProtocolError,
+                                "shut down cleanly"):
+      ExternalStoryResult.parse(data, "0-0-default", DEFAULT_STORY,
+                                DEFAULT_REQUIRED_PHASES)
+
+  def test_boolean_shutdown_exit_code(self) -> None:
+    data = valid_result()
+    data["shutdown"] = {
+        "status": "clean",
+        "exitCode": False,
+        "signal": None,
+    }
+    with self.assertRaisesRegex(ExternalStoryProtocolError,
+                                "shutdown exitCode"):
+      ExternalStoryResult.parse(data, "0-0-default", DEFAULT_STORY,
+                                DEFAULT_REQUIRED_PHASES)
+
   def test_missing_required_phase(self) -> None:
     data = valid_result()
     phases = data["phases"]
@@ -184,6 +221,11 @@ class ExternalStoryInvocationTestCase(unittest.TestCase):
                 }
                 for index, name in enumerate(REQUIRED_PHASES)
             },
+            "shutdown": {
+                "status": "clean",
+                "exitCode": 0,
+                "signal": None,
+            },
             "metadata": {"app": "fake"},
             "artifacts": {},
         }
@@ -221,6 +263,11 @@ class ExternalStoryInvocationTestCase(unittest.TestCase):
                     "durationMs": 10,
                 }
                 for index, name in enumerate(REQUIRED_PHASES)
+            },
+            "shutdown": {
+                "status": "clean",
+                "exitCode": 0,
+                "signal": None,
             },
             "metadata": {},
             "artifacts": {},
@@ -302,6 +349,11 @@ class ExternalStoryInvocationTestCase(unittest.TestCase):
                 }
                 for index, name in enumerate(REQUIRED_PHASES)
             },
+            "shutdown": {
+                "status": "clean",
+                "exitCode": 0,
+                "signal": None,
+            },
             "metadata": {},
             "artifacts": {},
         }
@@ -337,6 +389,11 @@ class ExternalStoryInvocationTestCase(unittest.TestCase):
                     "durationMs": 10,
                 }
                 for index, name in enumerate(REQUIRED_PHASES)
+            },
+            "shutdown": {
+                "status": "clean",
+                "exitCode": 0,
+                "signal": None,
             },
             "metadata": {},
             "artifacts": {},
@@ -397,6 +454,11 @@ class ExternalStoryInvocationTestCase(unittest.TestCase):
                     "durationMs": 10,
                 }
                 for index, name in enumerate(REQUIRED_PHASES)
+            },
+            "shutdown": {
+                "status": "clean",
+                "exitCode": 0,
+                "signal": None,
             },
             "metadata": {},
             "artifacts": {},
@@ -461,8 +523,7 @@ class ExternalStoryInvocationTestCase(unittest.TestCase):
   def test_prepare_cli_args_infers_browser_from_empty_config(self) -> None:
     story = self._story(self._write_story_cli(""))
     benchmark = ElectronStoryBenchmark((story,))
-    args = SimpleNamespace(
-        browser=None, browser_config=SimpleNamespace(browsers=()))
+    args = SimpleNamespace(browser=None, browser_config=BrowserVariantsConfig())
 
     with mock.patch.object(
         ExternalElectronStory,
@@ -473,6 +534,29 @@ class ExternalStoryInvocationTestCase(unittest.TestCase):
 
     self.assertEqual(len(args.browser), 1)
     self.assertIsNone(args.browser_config)
+
+  def test_prepare_cli_args_preserves_browser_config_path(self) -> None:
+    story = self._story(self._write_story_cli(""))
+    benchmark = ElectronStoryBenchmark((story,))
+    browser_config = self.root / "browsers.hjson"
+    args = SimpleNamespace(browser=None, browser_config=browser_config)
+
+    benchmark.prepare_cli_args(args)
+
+    self.assertIs(args.browser_config, browser_config)
+    self.assertIsNone(args.browser)
+
+  def test_prepare_cli_args_preserves_parsed_browser_config(self) -> None:
+    story = self._story(self._write_story_cli(""))
+    benchmark = ElectronStoryBenchmark((story,))
+    browser_config = BrowserVariantsConfig()
+    browser_config._variants.append(mock.Mock())
+    args = SimpleNamespace(browser=None, browser_config=browser_config)
+
+    benchmark.prepare_cli_args(args)
+
+    self.assertIs(args.browser_config, browser_config)
+    self.assertIsNone(args.browser)
 
   def test_interrupt_kills_process_tree(self) -> None:
     story = self._story(self._write_story_cli(""))
