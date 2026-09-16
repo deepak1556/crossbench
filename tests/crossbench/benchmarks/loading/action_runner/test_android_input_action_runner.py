@@ -532,6 +532,26 @@ class AndroidInputActionRunnerTestCase(ActionRunnerTestCase):
       mock_ad.ui.assert_called_once_with(clazz="mock_clazz")
       mock_ui_object.click.assert_called_once()
 
+  def test_click_ui_selector_pkg_and_text(self):
+    click_action = ClickAction(
+        InputSource.TOUCH,
+        position=PositionConfig.from_ui_selector(
+            pkg="com.android.systemui", text="Chrome", required=True))
+
+    mock_ad = mock.MagicMock()
+    mock_ui_object = mock.MagicMock()
+    mock_ui_object.wait.exists.return_value = True
+    mock_ad.ui.return_value = mock_ui_object
+
+    with mock.patch.object(
+        self.platform,
+        "uiautomator_device",
+        return_value=contextlib.nullcontext(mock_ad)):
+      self.run_action(click_action)
+      mock_ad.ui.assert_called_once_with(
+          pkg="com.android.systemui", text="Chrome")
+      mock_ui_object.click.assert_called_once()
+
 
 if __name__ == "__main__":
   test_helper.run_pytest(__file__)

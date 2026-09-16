@@ -82,6 +82,7 @@ class UiSelectorConfig(ConfigObject):
   https://developer.android.com/reference/androidx/test/uiautomator/BySelector
   """
 
+  pkg: str | None = None
   res: str | None = None
   clazz: str | None = None
   text: str | None = None
@@ -104,6 +105,11 @@ class UiSelectorConfig(ConfigObject):
   def config_parser(cls) -> ConfigParser[UiSelectorConfig]:
     parser = ConfigParser(
         cls, unused_properties_mode=UnusedPropertiesMode.ERROR)
+    parser.add_argument(
+        "pkg",
+        type=ObjectParser.non_empty_str,
+        required=False,
+        help="Package name of the UI element to match.")
     parser.add_argument(
         "res",
         type=ObjectParser.non_empty_str,
@@ -128,6 +134,8 @@ class UiSelectorConfig(ConfigObject):
 
   def to_json(self) -> JsonDict:
     result: JsonDict = {}
+    if self.pkg is not None:
+      result["pkg"] = self.pkg
     if self.res is not None:
       result["res"] = self.res
     if self.clazz is not None:
@@ -186,13 +194,14 @@ class PositionConfig(ConfigObject):
 
   @classmethod
   def from_ui_selector(cls,
+                       pkg: str | None = None,
                        res: str | None = None,
                        clazz: str | None = None,
                        text: str | None = None,
                        required: bool = True) -> PositionConfig:
     return cls(
         ui_selector=UiSelectorConfig(
-            res=res, clazz=clazz, text=text, required=required))
+            pkg=pkg, res=res, clazz=clazz, text=text, required=required))
 
   @override
   def validate(self) -> None:
