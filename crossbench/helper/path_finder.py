@@ -323,6 +323,12 @@ class WprGoFinder(BaseCrossbenchPathFinder):
 
     os_name, arch = target_platform.type_key
     out_dir = self.platform.local_cache_dir("webpagereplay") / os_name / arch
+    env = dict(self.platform.environ)
+    if (target_platform.is_android or target_platform.is_linux or
+        target_platform.is_chromeos):
+      # Ensure 16KB page alignment for ELF binaries on Android/Linux.
+      goflags = env.get("GOFLAGS", "")
+      env["GOFLAGS"] = f"{goflags} -ldflags=-R=0x4000".strip()
     self.platform.sh(
         sys.executable or "python3",
         build_script,
@@ -334,6 +340,7 @@ class WprGoFinder(BaseCrossbenchPathFinder):
         out_dir,
         "--binary",
         binary,
+        env=env,
         capture_output=True,
     )
     return out_dir / binary
